@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>segagent demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --border: #e3e6eb;
+    --text: #16181d; --muted: #5d6573; --accent: #4f46e5; --accent-ink: #ffffff; --accent-soft: #eef0ff;
+    --ok: #15803d; --ok-soft: #e7f6ec; --warn: #b45309; --warn-soft: #fdf3e2; --err: #b91c1c; --err-soft: #fdecec;
+    --code: #f3f4f7; --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .06);
+    --radius: 12px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --surface: #171a21; --surface-2: #1e222b; --border: #2a2f3a;
+      --text: #e8eaef; --muted: #9aa3b2; --accent: #8b8cf8; --accent-ink: #0f1115; --accent-soft: #23254a;
+      --ok: #4ade80; --ok-soft: #14301f; --warn: #fbbf24; --warn-soft: #33270f; --err: #f87171; --err-soft: #3a1717;
+      --code: #1b1f27; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, textarea { font: inherit; color: inherit; }
+  code, pre { font-family: var(--mono); font-size: 12.5px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  .logo { width: 22px; height: 22px; border-radius: 6px; flex: none;
+    background: conic-gradient(var(--accent) 0 50%, #22c55e 0 75%, #f59e0b 0); }
+  .brand { font-weight: 650; font-size: 16px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+
+  .layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 20px 24px;
+    max-width: 1500px; margin: 0 auto; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); padding: 16px; } header { padding: 12px 16px; } }
+  .layout > *, .grid2 > *, #run > * { min-width: 0; } /* let wide <pre> blocks scroll instead of widening the page */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card > h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+    margin: 0; padding: 14px 16px 0; }
+  .card-body { padding: 12px 16px 16px; }
+
+  /* form */
+  aside.card { padding: 16px; position: sticky; top: 68px; }
+  @media (max-width: 900px) { aside.card { position: static; } }
+  .drop { display: grid; place-items: center; min-height: 170px; border: 1.5px dashed var(--border); border-radius: 10px;
+    background: var(--surface-2); cursor: pointer; text-align: center; padding: 12px; overflow: hidden; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop.has-image { padding: 0; border-style: solid; }
+  .drop img { display: block; max-width: 100%; max-height: 260px; }
+  .drop-hint strong { display: block; font-size: 15px; }
+  .drop-hint span { color: var(--muted); font-size: 12.5px; }
+  .file-name { color: var(--muted); font-size: 12px; margin: 6px 2px 0; overflow-wrap: anywhere; min-height: 18px; }
+  .field { display: block; margin-top: 14px; }
+  .field > span { display: block; font-weight: 600; margin-bottom: 6px; }
+  .field em { font-style: normal; font-weight: 400; color: var(--muted); }
+  .field small { display: block; color: var(--muted); margin-top: 4px; font-size: 12px; }
+  textarea, input[type=text] { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
+    background: var(--surface); resize: vertical; }
+  textarea:focus, input[type=text]:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chips button { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 3px 10px;
+    font-size: 12.5px; cursor: pointer; color: var(--muted); }
+  .chips button:hover { color: var(--text); border-color: var(--accent); }
+  .run-btn { margin-top: 16px; width: 100%; border: 0; border-radius: 8px; padding: 10px; font-weight: 600;
+    background: var(--accent); color: var(--accent-ink); cursor: pointer; display: flex; gap: 8px; justify-content: center; align-items: center; }
+  .run-btn:disabled { opacity: .65; cursor: progress; }
+  .form-error { color: var(--err); background: var(--err-soft); border-radius: 8px; padding: 8px 10px; margin: 12px 0 0; }
+
+  /* empty state */
+  .empty { padding: 28px; }
+  .empty h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .empty p { color: var(--muted); margin: 0 0 18px; max-width: 640px; }
+  .flow { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .flow li { background: var(--surface-2); border-radius: 10px; padding: 12px 14px; }
+  .flow b { display: block; margin-bottom: 2px; }
+  .flow span { color: var(--muted); font-size: 13px; }
+  .flow i { font-style: normal; color: var(--accent); font-weight: 700; margin-right: 4px; }
+
+  /* run */
+  #run { display: grid; gap: 16px; }
+  .status { display: flex; align-items: center; gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
+  .pill { border-radius: 999px; padding: 2px 10px; font-weight: 600; font-size: 12.5px; display: inline-flex; gap: 6px; align-items: center; }
+  .pill.running { background: var(--accent-soft); color: var(--accent); }
+  .pill.done { background: var(--ok-soft); color: var(--ok); }
+  .pill.incomplete { background: var(--warn-soft); color: var(--warn); }
+  .pill.error { background: var(--err-soft); color: var(--err); }
+  .status .phase { flex: 1; min-width: 200px; }
+  .status .instr { width: 100%; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .elapsed { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent;
+    display: inline-block; animation: spin .8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+  .viewer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px 0; flex-wrap: wrap; }
+  .viewer-caption { color: var(--muted); font-size: 13px; }
+  .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 2px; }
+  .seg button { border: 0; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 13px; }
+  .seg button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-weight: 600; }
+  .stage-wrap { padding: 12px 16px 16px; display: flex; justify-content: center; }
+  .stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+  .stage img { display: block; max-width: 100%; max-height: 68vh; }
+  .stage .top { position: absolute; inset: 0; width: 100%; height: 100%; clip-path: inset(0 calc(100% - var(--pos, 50%)) 0 0); }
+  .stage .divider { position: absolute; top: 0; bottom: 0; left: var(--pos, 50%); width: 2px; margin-left: -1px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.25); pointer-events: none; }
+  .stage .divider::after { content: "⟷"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 30px; height: 30px; border-radius: 50%; background: #fff; color: #16181d; display: grid; place-items: center;
+    font: 600 14px/1 system-ui; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .stage input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+  .stage .corner { position: absolute; top: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff;
+    font-size: 12px; line-height: 1.6; pointer-events: none; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .stat { padding: 12px 14px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .stat span { color: var(--muted); font-size: 12.5px; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; }
+  .class-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+  .chip i, .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+  .dot { margin-right: 6px; vertical-align: -1px; }
+  .table-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; color: var(--muted); font-size: 12px; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .downloads { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .dl { border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; font-size: 13px; color: var(--text); text-decoration: none; background: var(--surface); }
+  .dl:hover { border-color: var(--accent); color: var(--accent); }
+  .out-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .copy { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; }
+  pre.out { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; max-height: 240px; overflow: auto; white-space: pre; }
+  .out-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .step { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .step.pending { display: flex; gap: 10px; align-items: center; color: var(--accent); border-style: dashed; }
+  .step-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .step-n { background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 0 7px; font-weight: 700; font-size: 12px; }
+  .muted { color: var(--muted); }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+  summary:hover { color: var(--text); }
+  pre.thought, details pre { margin: 6px 0 0; background: var(--code); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap;
+    overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+  .say { margin: 8px 0 0; }
+  .call { margin-top: 10px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
+  .call-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .call-head .time { margin-left: auto; }
+  .tool { background: var(--accent-soft); color: var(--accent); border-radius: 5px; padding: 1px 6px; font-weight: 600; }
+  .tag { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; font-size: 12.5px; }
+  .call-body { margin-top: 6px; font-size: 13px; overflow-wrap: anywhere; }
+  .bad { color: var(--err); } .warn { color: var(--warn); } .good { color: var(--ok); }
+  .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .thumb { border: 1px solid var(--border); padding: 0; border-radius: 6px; overflow: hidden; cursor: zoom-in; background: none; line-height: 0; }
+  .thumb img { height: 90px; width: auto; display: block; }
+  .thumb:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo" aria-hidden="true"></span>
+  <span class="brand">segagent</span>
+  <span class="sub">SAM 3 × Gemma 4 agent · phase 0 demo</span>
+</header>
+
+<main class="layout">
+  <aside class="card">
+    <form id="form" novalidate>
+      <label class="drop" id="drop" for="file" tabindex="0" aria-label="Choose an image">
+        <img id="preview" alt="Selected image" hidden>
+        <span class="drop-hint" id="drop-hint"><strong>Drop an image</strong><span>or click to choose · JPG, PNG, WebP · max 20 MB</span></span>
+      </label>
+      <input type="file" id="file" accept="image/*" hidden>
+      <p class="file-name" id="file-name"></p>
+
+      <label class="field"><span>Instruction</span>
+        <textarea id="instruction" rows="3" placeholder="e.g. Label every worker without a hard hat"></textarea>
+      </label>
+      <div class="chips" id="examples" aria-label="Example instructions">
+        <button type="button">Label every person and every car</button>
+        <button type="button">Label all animals, using the species as the class</button>
+        <button type="button">Label people who are not wearing a helmet</button>
+        <button type="button">Label the object on the far left</button>
+      </div>
+
+      <label class="field"><span>Class names <em>(optional)</em></span>
+        <input type="text" id="classes" placeholder="helmet, person" autocomplete="off">
+        <small>Comma-separated. Fixes the YOLO class ids and their order.</small>
+      </label>
+
+      <button class="run-btn" id="run-btn" type="submit">Run agent</button>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+    </form>
+  </aside>
+
+  <section aria-live="polite">
+    <div class="card empty" id="empty">
+      <h1>See SAM 3 work as a tool for an LLM</h1>
+      <p>Upload an image and describe what to label. Gemma 4 plans and decides; SAM 3 segments; the system writes the files. You'll see every step as it happens.</p>
+      <ol class="flow">
+        <li><b><i>1</i>Plan</b><span>Gemma turns your request into short noun phrases.</span></li>
+        <li><b><i>2</i>Segment</b><span>SAM 3 finds every instance and returns ids + facts.</span></li>
+        <li><b><i>3</i>Decide</b><span>Gemma reads the facts and the numbered overlay, then picks ids.</span></li>
+        <li><b><i>4</i>Export</b><span>Overlay image, YOLO boxes &amp; polygons, JSON with masks.</span></li>
+      </ol>
+    </div>
+
+    <div id="run" hidden>
+      <div class="card status">
+        <span class="pill" id="pill"></span>
+        <span class="phase" id="phase"></span>
+        <span class="elapsed" id="elapsed"></span>
+        <span class="instr" id="instr"></span>
+      </div>
+
+      <div class="card" id="viewer">
+        <div class="viewer-bar">
+          <span class="viewer-caption" id="viewer-caption"></span>
+          <div class="seg" id="viewer-tabs" role="group" aria-label="Image view" hidden>
+            <button type="button" data-mode="compare">Compare</button>
+            <button type="button" data-mode="result">Result</button>
+            <button type="button" data-mode="original">Original</button>
+          </div>
+        </div>
+        <div class="stage-wrap">
+          <div class="stage" id="stage">
+            <img id="img-base" alt="">
+            <img id="img-top" class="top" alt="Result overlay" hidden>
+            <span class="corner" id="corner-l" style="left:8px" hidden>Result</span>
+            <span class="corner" id="corner-r" style="right:8px" hidden>Original</span>
+            <div class="divider" id="divider" hidden></div>
+            <input type="range" id="slider" min="0" max="100" value="50" aria-label="Compare result and original" hidden>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="grid2" id="final" hidden>
+        <div class="card"><h2>Objects</h2>
+          <div class="card-body">
+            <div class="class-chips" id="class-chips"></div>
+            <div class="table-wrap" id="obj-table"><table>
+              <thead><tr><th>Id</th><th>Class</th><th class="num">Score</th></tr></thead>
+              <tbody id="obj-rows"></tbody>
+            </table></div>
+          </div>
+        </div>
+        <div class="card"><h2>Outputs</h2>
+          <div class="card-body">
+            <div class="downloads" id="downloads"></div>
+            <div class="out-head">
+              <div class="seg" id="out-tabs" role="group" aria-label="Output file"></div>
+              <button type="button" class="copy" id="copy">Copy</button>
+            </div>
+            <pre class="out" id="out-text"></pre>
+            <div class="out-meta" id="out-meta"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card"><h2>Agent steps</h2>
+        <div class="card-body"><ol class="timeline" id="timeline"></ol></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+// Same palette as segagent/render.py, so class colors match the overlay.
+const PALETTE = [[230,25,75],[60,180,75],[255,225,25],[0,130,200],[245,130,48],[145,30,180],[70,240,240],[240,50,230],
+  [210,245,60],[250,190,212],[0,128,128],[220,190,255],[170,110,40],[255,250,200],[128,0,0],[170,255,195],[128,128,0],
+  [255,215,180],[0,0,128],[255,255,255]];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const fmtS = s => s == null ? "–" : s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} m ${String(Math.round(s % 60)).padStart(2, "0")} s`;
+const color = (cls, classes) => { const i = classes.indexOf(cls); return `rgb(${PALETTE[(i < 0 ? 0 : i) % PALETTE.length]})`; };
+const TOOL_PHASE = {segment_concepts: "SAM 3 is segmenting…", inspect: "Rendering crops for Gemma…",
+  finalize: "Writing output files…", report_none: "Finishing…"};
+
+let file = null, current = null, pollTimer = null, startedAt = null, lastTimeline = "", outputsFor = null;
+let viewer = {mode: "auto"}, outText = {}, outKey = null;
+
+/* ---------- form ---------- */
+const drop = $("#drop"), fileInput = $("#file");
+fileInput.addEventListener("change", () => pick(fileInput.files[0]));
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+
+function pick(f) {
+  if (!f) return;
+  if (!f.type.startsWith("image/")) return formError("Please choose an image file.");
+  file = f;
+  $("#preview").src = URL.createObjectURL(f);
+  $("#preview").hidden = false;
+  $("#drop-hint").hidden = true;
+  drop.classList.add("has-image");
+  $("#file-name").textContent = `${f.name} · ${(f.size / 1024 / 1024).toFixed(1)} MB`;
+  formError("");
+}
+function formError(msg) { $("#form-error").textContent = msg; $("#form-error").hidden = !msg; }
+$("#examples").addEventListener("click", e => {
+  if (e.target.tagName === "BUTTON") { $("#instruction").value = e.target.textContent; $("#instruction").focus(); }
+});
+
+function setBusy(busy) {
+  const b = $("#run-btn");
+  b.disabled = busy;
+  b.innerHTML = busy ? '<span class="spinner"></span>Running…' : "Run agent";
+}
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!file) return formError("Choose an image first.");
+  const instruction = $("#instruction").value.trim();
+  if (!instruction) return formError("Write an instruction.");
+  formError("");
+  const fd = new FormData();
+  fd.append("image", file);
+  fd.append("instruction", instruction);
+  fd.append("classes", $("#classes").value);
+  setBusy(true);
+  try {
+    const r = await fetch("/api/runs", {method: "POST", body: fd});
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || `Server error ${r.status}`);
+    history.replaceState(null, "", `?run=${encodeURIComponent(body.id)}`);
+    startedAt = Date.now(); lastTimeline = ""; outputsFor = null; viewer = {mode: "auto"};
+    poll(body.id);
+  } catch (err) { formError(err.message); setBusy(false); }
+});
+
+/* ---------- polling ---------- */
+async function poll(id, failures = 0) {
+  clearTimeout(pollTimer);
+  try {
+    const r = await fetch(`/api/runs/${encodeURIComponent(id)}`);
+    const job = await r.json();
+    if (!r.ok) throw new Error(job.detail || `Server error ${r.status}`);
+    if (job.status === "running" && !startedAt) startedAt = Date.now();
+    render(job);
+    if (job.status === "running") pollTimer = setTimeout(() => poll(id), 1000);
+    else setBusy(false);
+  } catch (err) {
+    if (failures < 5) { pollTimer = setTimeout(() => poll(id, failures + 1), 2000); return; }
+    formError(`Lost the run: ${err.message}`); setBusy(false);
+  }
+}
+setInterval(() => {
+  if (current?.status === "running" && startedAt) $("#elapsed").textContent = fmtS((Date.now() - startedAt) / 1000);
+}, 250);
+
+/* ---------- render ---------- */
+function render(job) {
+  current = job;
+  $("#empty").hidden = true;
+  $("#run").hidden = false;
+  renderStatus(job);
+  renderStats(job);
+  renderViewer(job);
+  const key = JSON.stringify([job.status, job.phase, job.steps]);
+  if (key !== lastTimeline) { lastTimeline = key; renderTimeline(job); }
+  const finished = Array.isArray(job.selected);
+  if (finished && outputsFor !== job.id) { outputsFor = job.id; renderFinal(job); }
+  $("#final").hidden = !finished;
+}
+
+// Run files are named relative to the run folder, which the server exposes at /runs/<id>/.
+const fileUrl = (job, name) => name ? `/runs/${encodeURIComponent(job.id)}/${encodeURI(name)}` : null;
+
+function phaseText(job) {
+  if (job.status === "error") return job.error || "Failed";
+  if (job.status === "incomplete") return "Stopped before finishing (step budget used up). See the steps below.";
+  if (job.status === "done") {
+    const n = job.selected.length;
+    return job.reason ? `Nothing matched: ${job.reason}` : `Done · ${n} object${n === 1 ? "" : "s"} labeled`;
+  }
+  const p = job.phase || "";
+  if (p === "llm") return `Gemma 4 is thinking (step ${job.steps.length + 1})…`;
+  if (p.startsWith("tool:")) return TOOL_PHASE[p.slice(5)] || `Running ${p.slice(5)}…`;
+  return "Loading the image…";
+}
+
+function renderStatus(job) {
+  const pill = $("#pill");
+  pill.className = `pill ${job.status}`;
+  pill.innerHTML = job.status === "running" ? '<span class="spinner"></span>Running' : esc(job.status[0].toUpperCase() + job.status.slice(1));
+  $("#phase").textContent = phaseText(job);
+  $("#instr").textContent = job.instruction ? `“${job.instruction}”` : "";
+  if (job.timing) $("#elapsed").textContent = fmtS(job.timing.total_s);
+}
+
+function renderStats(job) {
+  const t = job.timing;
+  const llm = t ? t.llm_s : job.steps.reduce((a, s) => a + s.llm_s, 0);
+  const tools = t ? t.tools_s : job.steps.reduce((a, s) => a + s.calls.reduce((b, c) => b + c.tool_s, 0), 0);
+  const tiles = [
+    [job.selected ? job.selected.length : "–", "objects labeled"],
+    [t ? fmtS(t.total_s) : "…", "total time"],
+    [fmtS(llm), "Gemma 4 (LLM)"],
+    [fmtS(tools), "SAM 3 + export"],
+    [t ? t.llm_calls : job.steps.length, "LLM calls"],
+  ];
+  $("#stats").innerHTML = tiles.map(([v, l]) => `<div class="card stat"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+}
+
+function seenImages(job) {
+  return job.steps.flatMap((s, i) => s.calls.flatMap(c => (c.images || []).map(n =>
+    ({url: fileUrl(job, n), caption: `What Gemma saw · step ${i + 1}, ${c.name}`}))));
+}
+
+function setImg(el, src) { if (src && el.getAttribute("src") !== src) el.src = src; }
+
+function renderViewer(job) {
+  const orig = fileUrl(job, job.files?.image), res = fileUrl(job, job.files?.overlay), seen = seenImages(job);
+  $("#viewer-tabs").hidden = !res || !orig;
+  let {mode, src, caption} = viewer;
+  if (mode === "auto") {
+    if (res) mode = orig ? "compare" : "result";
+    else if (seen.length) { mode = "seen"; src = seen.at(-1).url; caption = seen.at(-1).caption; }
+    else mode = "original";
+  }
+  if ((mode === "compare" || mode === "original") && !orig) mode = "result";
+  const base = {compare: orig, result: res, original: orig, seen: src}[mode];
+  $("#stage").hidden = !base;
+  setImg($("#img-base"), base);
+  $("#img-base").alt = {compare: "Original image", result: "Result overlay", original: "Original image", seen: caption}[mode] || "";
+  const cmp = mode === "compare";
+  ["#img-top", "#divider", "#slider", "#corner-l", "#corner-r"].forEach(s => $(s).hidden = !cmp);
+  if (cmp) setImg($("#img-top"), res);
+  document.querySelectorAll("#viewer-tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  $("#viewer-caption").textContent = {
+    compare: "Drag across the image to compare result and original",
+    result: "Result overlay", original: "Original image",
+    seen: caption || "", }[mode] || "Waiting for the image…";
+}
+$("#viewer-tabs").addEventListener("click", e => {
+  if (e.target.dataset.mode) { viewer = {mode: e.target.dataset.mode}; renderViewer(current); }
+});
+$("#slider").addEventListener("input", e => $("#stage").style.setProperty("--pos", `${e.target.value}%`));
+
+function argsText(c) {
+  const a = c.args;
+  if (!a || typeof a !== "object") return esc(a);
+  if (c.name === "segment_concepts")
+    return (a.phrases || []).map(p => `<span class="tag">${esc(p)}</span>`).join(" ") +
+      (a.min_score != null ? ` <span class="muted">min score ${esc(a.min_score)}</span>` : "");
+  if (c.name === "inspect") return `${esc(a.view || "crops")}: ${(a.ids || []).map(esc).join(", ")}`;
+  if (c.name === "finalize") {
+    const by = {};
+    (a.selection || []).forEach(s => (by[s.class] ??= []).push(s.id));
+    const parts = Object.entries(by).map(([k, ids]) =>
+      `${esc(k)} ← ${ids.slice(0, 8).map(esc).join(", ")}${ids.length > 8 ? ` +${ids.length - 8}` : ""}`);
+    (a.select_all || []).forEach(r => parts.push(`${esc(r.class)} ← every “${esc(r.phrase)}”${r.min_score ? ` ≥ ${esc(r.min_score)}` : ""}`));
+    return parts.join(" · ");
+  }
+  if (c.name === "report_none") return esc(a.reason);
+  return esc(JSON.stringify(a));
+}
+
+function resultLines(c) {
+  const r = c.result || {}, out = [];
+  if (r.error) return [`<span class="bad">Error: ${esc(r.error)}</span>`];
+  if (c.name === "segment_concepts") {
+    const n = r.added.length + (r.more || 0);
+    out.push(`${n} new object${n === 1 ? "" : "s"}` +
+      (r.also_matched_existing?.length ? ` · ${r.also_matched_existing.length} matched existing` : ""));
+    if (r.not_found?.length) out.push("Not found: " + r.not_found.map(f =>
+      `${esc(f.phrase)} <span class="muted">(presence ${esc(f.presence)})</span>`).join(", "));
+    if (r.relations?.length) out.push(`<span class="muted">Relations:</span> ${r.relations.slice(0, 4).map(esc).join(" · ")}` +
+      (r.relations.length > 4 ? ` <span class="muted">+${r.relations.length - 4} more</span>` : ""));
+    (r.warnings || []).forEach(w => out.push(`<span class="warn">${esc(w)}</span>`));
+    if (r.note) out.push(`<span class="muted">${esc(r.note)}</span>`);
+  } else if (c.name === "inspect") {
+    out.push(`Showed ${esc(r.view)} of ${(r.shown || []).map(esc).join(", ")}`);
+  } else if (r.ok) {
+    out.push(`<span class="good">Kept ${r.selected} object${r.selected === 1 ? "" : "s"} · wrote ${(r.files || []).map(esc).join(", ")}</span>`);
+  }
+  return out;
+}
+
+function renderTimeline(job) {
+  const el = $("#timeline");
+  const open = new Set([...el.querySelectorAll("details[open]")].map(d => d.dataset.key));
+  let html = "";
+  job.steps.forEach((s, i) => {
+    const m = /<thought>([\s\S]*?)<\/thought>/.exec(s.text || "");
+    const thought = m ? m[1].trim() : "", said = (s.text || "").replace(/<thought>[\s\S]*?<\/thought>/, "").trim();
+    html += `<li class="step"><div class="step-head"><span class="step-n">${i + 1}</span><strong>Gemma 4</strong>
+      <span class="muted">${fmtS(s.llm_s)}${s.tokens ? ` · ${s.tokens.in.toLocaleString()} → ${s.tokens.out.toLocaleString()} tokens` : ""}</span></div>`;
+    if (thought) html += `<details data-key="t${i}"><summary>Reasoning</summary><pre class="thought">${esc(thought)}</pre></details>`;
+    if (said) html += `<p class="say">${esc(said)}</p>`;
+    s.calls.forEach((c, j) => {
+      const lines = resultLines(c);
+      const thumbs = (c.images || []).map(n => `<button type="button" class="thumb" data-src="${esc(fileUrl(job, n))}"
+        data-caption="${esc(`What Gemma saw · step ${i + 1}, ${c.name}`)}" aria-label="Open the image Gemma saw">
+        <img src="${esc(fileUrl(job, n))}" alt="" loading="lazy"></button>`).join("");
+      html += `<div class="call"><div class="call-head"><code class="tool">${esc(c.name)}</code>
+        <span>${argsText(c)}</span><span class="muted time">${fmtS(c.tool_s)}</span></div>
+        ${lines.length ? `<div class="call-body">${lines.join("<br>")}</div>` : ""}
+        ${thumbs ? `<div class="thumbs">${thumbs}</div>` : ""}
+        <details data-key="r${i}-${j}"><summary>Raw call</summary><pre>${esc(JSON.stringify({args: c.args, result: c.result}, null, 2))}</pre></details></div>`;
+    });
+    html += "</li>";
+  });
+  if (job.status === "running") html += `<li class="step pending"><span class="spinner"></span>${esc(phaseText(job))}</li>`;
+  el.innerHTML = html || '<li class="muted">No steps.</li>';
+  el.querySelectorAll("details").forEach(d => { if (open.has(d.dataset.key)) d.open = true; });
+  el.querySelectorAll(".thumb").forEach(b => b.addEventListener("click", () => {
+    viewer = {mode: "seen", src: b.dataset.src, caption: b.dataset.caption};
+    renderViewer(current);
+    $("#viewer").scrollIntoView({behavior: "smooth", block: "start"});
+  }));
+}
+
+async function renderFinal(job) {
+  const s = job, sel = s.selected;
+  const classes = s.classes || [...new Set(sel.map(o => o.class))];
+  const counts = {};
+  sel.forEach(o => counts[o.class] = (counts[o.class] || 0) + 1);
+  $("#class-chips").innerHTML = classes.filter(c => counts[c]).map(c =>
+    `<span class="chip"><i style="background:${color(c, classes)}"></i>${esc(c)} <b>${counts[c]}</b></span>`).join("") ||
+    `<span class="muted">${esc(s.reason ? `Nothing matched: ${s.reason}` : "No objects kept.")}</span>`;
+  $("#obj-table").hidden = !sel.length;
+  $("#obj-rows").innerHTML = sel.map(o => `<tr><td><code>${esc(o.id)}</code></td>
+    <td><i class="dot" style="background:${color(o.class, classes)}"></i>${esc(o.class)}</td>
+    <td class="num">${o.score != null ? o.score.toFixed(2) : "–"}</td></tr>`).join("");
+
+  const f = Object.fromEntries(Object.entries(job.files || {}).map(([k, n]) => [k, fileUrl(job, n)]));
+  f.trace = fileUrl(job, "trace.json");
+  $("#downloads").innerHTML = [["overlay", "Overlay image"], ["yolo_det", "YOLO boxes"], ["yolo_seg", "YOLO polygons"],
+    ["data_yaml", "data.yaml"], ["json", "JSON + masks"], ["trace", "trace.json"]]
+    .filter(([k]) => f[k]).map(([k, label]) => `<a class="dl" href="${esc(f[k])}" download>${label}</a>`).join("");
+
+  const tabs = [["yolo_det", "YOLO boxes", f.yolo_det], ["yolo_seg", "YOLO polygons", f.yolo_seg], ["yaml", "data.yaml", f.data_yaml]]
+    .filter(t => t[2]);
+  outText = {};
+  await Promise.all(tabs.map(async ([k, , url]) => {
+    try { outText[k] = await (await fetch(url)).text(); } catch { outText[k] = null; }
+  }));
+  $("#out-tabs").innerHTML = tabs.map(([k, label]) => `<button type="button" data-k="${k}">${label}</button>`).join("");
+  showOut(tabs[0]?.[0]);
+}
+
+function showOut(k) {
+  outKey = k;
+  document.querySelectorAll("#out-tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k));
+  const text = outText[k];
+  $("#out-text").textContent = text == null ? "(could not load)" : text || "(empty file)";
+  const lines = text ? text.trim().split("\n").filter(Boolean).length : 0;
+  $("#out-meta").textContent = k === "yaml" ? "Class id → name. Ultralytics reads this as the dataset's class list." :
+    k === "yolo_det" ? `${lines} line${lines === 1 ? "" : "s"} · class cx cy w h, normalized 0–1` + (lines ? "" : " · empty file = negative image") :
+    `${lines} line${lines === 1 ? "" : "s"} · class x1 y1 … xn yn, normalized 0–1`;
+}
+$("#out-tabs").addEventListener("click", e => { if (e.target.dataset.k) showOut(e.target.dataset.k); });
+$("#copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(outText[outKey] || ""); $("#copy").textContent = "Copied"; }
+  catch { $("#copy").textContent = "Copy failed"; }
+  setTimeout(() => $("#copy").textContent = "Copy", 1500);
+});
+
+/* ---------- open a run from the URL (?run=<id>) ---------- */
+const runId = new URLSearchParams(location.search).get("run");
+if (runId) poll(runId);
+</script>
+</body>
+</html>
