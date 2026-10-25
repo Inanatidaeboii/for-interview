@@ -1,9 +1,7 @@
 """Ports: what the core needs from the outside world. Adapters implement them; the core never imports an adapter.
 
-Chat messages use the OpenAI chat shape (system/user/assistant/tool roles), except that images are
-{"type": "image", "image": PIL.Image} parts; the ChatModel adapter encodes them for its API."""
+The chat model port is LangChain's provider-neutral `BaseChatModel` (see adapters/llm.py)."""
 
-from dataclasses import dataclass
 from typing import Protocol
 
 from PIL import Image
@@ -15,26 +13,10 @@ class Segmenter(Protocol):
     def segment(self, image: Image.Image, phrases: list[str], threshold: float) -> tuple[list[Detection], dict[str, float]]:
         """Detections for every phrase, and each phrase's presence score (0..1)."""
 
-
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: str  # raw JSON text, as the model wrote it
-
-
-@dataclass
-class Reply:
-    text: str | None
-    tool_calls: list[ToolCall]
-    message: dict  # the assistant message to append to the chat as-is (keeps provider extras)
-    tokens: dict | None = None  # {"in": n, "out": n}
-
-
-class ChatModel(Protocol):
-    name: str
-
-    def chat(self, messages: list[dict], tools: list[dict]) -> Reply: ...
+    def segment_examples(self, image: Image.Image, boxes: list[list[float]], labels: list[int], phrase: str,
+                         threshold: float) -> tuple[list[Detection], float]:
+        """Objects that look like the example boxes (label 1) and not like the negative ones (label 0).
+        Detections are tagged with `phrase`; also returns the presence score."""
 
 
 class Store(Protocol):

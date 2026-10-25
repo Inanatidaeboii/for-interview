@@ -3,12 +3,10 @@
 Handlers return (result_dict, images). Results are compact JSON for the model; images are attached by the
 agent loop as a follow-up user message, because tool messages only carry text on OpenAI-compatible APIs."""
 
-import json
-
 from PIL import Image
 
 from segagent.core import formats, render
-from segagent.core.domain import Workspace
+from segagent.core.domain import Detection, Workspace
 from segagent.core.ports import Segmenter, Store
 
 MAX_LISTED = 30  # instances listed per result; the rest are only counted
@@ -37,6 +35,16 @@ def tool_schemas(classes: list[str] | None = None) -> list[dict]:
             "min_score": {"type": "number", "description": "confidence threshold 0-1, default 0.5. "
                           "Lower it (e.g. 0.3) only to recover missed objects."}},
            ["phrases"]),
+        fn("segment_like",
+           "Find more objects that LOOK LIKE the given example objects (by appearance, not by name). Use it when "
+           "segment_concepts found some objects but missed look-alikes, or found wrong look-alikes you want to "
+           "exclude (negative_ids). Results add up like segment_concepts.",
+           {"example_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 4,
+                            "description": "ids of objects to find more of, like m3"},
+            "negative_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                             "description": "ids of objects that must NOT match"},
+            "min_score": {"type": "number", "description": "confidence threshold 0-1, default 0.5"}},
+           ["example_ids"]),
         fn("inspect",
            "Look closer at objects: 'crops' shows zoomed crops with the mask outlined (to check color, "
            "clothing, state); 'overlay' shows only these ids on the full image. Uses one image from a "
@@ -72,8 +80,8 @@ class Toolbox:
         self.files: dict[str, str] = {}  # output kind -> file name in the store
 
     def call(self, name: str, args: dict) -> tuple[dict, list[Image.Image]]:
-        handler = {"segment_concepts": self.segment_concepts, "inspect": self.inspect,
-                   "finalize": self.finalize, "report_none": self.report_none}.get(name)
+        handler = {"segment_concepts": self.segment_concepts, "segment_like": self.segment_like,
+                   "inspect": self.inspect, "finalize": self.finalize, "report_none": self.report_none}.get(name)
         if handler is None:
             return {"error": f"unknown tool '{name}'"}, []
         try:
@@ -91,8 +99,28 @@ class Toolbox:
         if not isinstance(phrases, list) or not all(isinstance(p, str) and p.strip() for p in phrases) or not phrases:
             return {"error": "phrases must be a non-empty list of short noun phrases"}, []
         phrases = list(dict.fromkeys(p.strip().lower() for p in phrases))[:8]
-        min_score = min(max(float(min_score), 0.05), 0.95)
-        detections, presence = self.segmenter.segment(self.ws.image, phrases, min_score)
+        detections, presence = self.segmenter.segment(self.ws.image, phrases, _clamp(min_score))
+        result, images = self._added(detections, phrases, presence)
+        warnings = [f"'{p}' looks like a description. Segment the plain nouns instead and use relations/inspect "
+                    "for the rest." for p in phrases if len(p.split()) > 4 or RELATION_WORDS & set(p.split())]
+        if warnings:
+            result["warnings"] = warnings
+        return result, images
+
+    def segment_like(self, example_ids, negative_ids=(), min_score=0.5):
+        if not isinstance(example_ids, list) or not example_ids or not isinstance(negative_ids, (list, tuple)):
+            return {"error": "example_ids must be a non-empty list like ['m3']; negative_ids a list"}, []
+        if err := self.ws.require(list(example_ids) + list(negative_ids)):
+            return {"error": err}, []
+        phrase = "like " + ", ".join(example_ids[:4])
+        ids = list(example_ids[:4]) + list(negative_ids[:4])
+        detections, presence = self.segmenter.segment_examples(
+            self.ws.image, [self.ws.instances[i].box for i in ids],
+            [1] * len(example_ids[:4]) + [0] * len(negative_ids[:4]), phrase, _clamp(min_score))
+        return self._added(detections, [phrase], {phrase: presence})
+
+    def _added(self, detections: list[Detection], phrases: list[str], presence: dict[str, float]):
+        """Adds detections to the workspace and builds the compact result + overlay for the model."""
         added = self.ws.add(detections)
         found = {d.phrase for d in detections}
         added_ids = {i.id for i in added}
@@ -105,10 +133,6 @@ class Toolbox:
             "relations": self.ws.relations(involving=added_ids),
             "workspace_total": len(self.ws.instances),
         }
-        warnings = [f"'{p}' looks like a description. Segment the plain nouns instead and use relations/inspect "
-                    "for the rest." for p in phrases if len(p.split()) > 4 or RELATION_WORDS & set(p.split())]
-        if warnings:
-            result["warnings"] = warnings
         if result["more"]:
             result["note"] = (f"{result['more']} more objects were found but not listed. To keep every object "
                               "of a phrase, use finalize with select_all.")
@@ -165,18 +189,12 @@ class Toolbox:
         return self._finish([], self.classes or [], str(reason))
 
     def _finish(self, selected, classes, reason=None):
-        stem, ws = self.ws.image_id, self.ws
-        outputs = {
-            "overlay": (f"{stem}_overlay.jpg", render.jpeg(render.presentation(ws.image, selected, classes), 92)),
-            "yolo_det": (f"yolo_det/{stem}.txt", formats.yolo_det(ws, selected, classes)),
-            "yolo_seg": (f"yolo_seg/{stem}.txt", formats.yolo_seg(ws, selected, classes)),
-            "data_yaml": ("data.yaml", formats.data_yaml(classes)),
-            "json": (f"{stem}.json", json.dumps(formats.to_json(ws, selected, classes), indent=1)),
-        }
-        for kind, (name, data) in outputs.items():
-            self.store.save(name, data)
-            self.files[kind] = name
+        self.files = formats.write_outputs(self.ws, selected, classes, self.store)
         self.done = True
-        self.result = {"selected": [{"id": i.id, "class": i.class_name, "score": round(i.score, 2)} for i in selected],
-                       "classes": classes, **({"reason": reason} if reason else {})}
-        return {"ok": True, "selected": len(selected), "files": list(outputs)}, []
+        self.result = {"selected": formats.selected_list(selected), "classes": classes,
+                       **({"reason": reason} if reason else {})}
+        return {"ok": True, "selected": len(selected), "files": list(self.files)}, []
+
+
+def _clamp(min_score) -> float:
+    return min(max(float(min_score), 0.05), 0.95)

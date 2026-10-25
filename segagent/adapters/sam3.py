@@ -32,20 +32,31 @@ class Sam3:
             self._image = image
         return self._vision
 
+    def _run(self, image: Image.Image, phrase: str, threshold: float, **prompt) -> tuple[list[Detection], float]:
+        """One prompt against the cached image features. Caller holds the lock."""
+        inputs = self.processor(**prompt, return_tensors="pt")
+        inputs.pop("original_sizes", None)
+        inputs = {k: v.to(self.device, dtype=self.model.dtype) if v.is_floating_point() else v.to(self.device)
+                  for k, v in inputs.items()}  # boxes follow the model dtype; token ids stay integers
+        with torch.inference_mode():
+            out = self.model(vision_embeds=self._vision_embeds(image), **inputs)
+            presence = out.presence_logits.float().sigmoid().item()
+            result = self.processor.post_process_instance_segmentation(
+                out, threshold=threshold, mask_threshold=0.5, target_sizes=[(image.height, image.width)]
+            )[0]
+        return [Detection(phrase, float(s), [float(v) for v in b], m.cpu().numpy().astype(bool))
+                for m, b, s in zip(result["masks"], result["boxes"], result["scores"])], presence
+
     def segment(self, image: Image.Image, phrases: list[str], threshold: float = 0.5):
         with self._lock:
-            vision = self._vision_embeds(image)
             detections, presence = [], {}
             for phrase in phrases:
-                text = self.processor(text=phrase, return_tensors="pt").to(self.device)
-                with torch.inference_mode():
-                    out = self.model(vision_embeds=vision, **text)
-                    presence[phrase] = out.presence_logits.float().sigmoid().item()
-                    result = self.processor.post_process_instance_segmentation(
-                        out, threshold=threshold, mask_threshold=0.5, target_sizes=[(image.height, image.width)]
-                    )[0]
-                for mask, box, score in zip(result["masks"], result["boxes"], result["scores"]):
-                    detections.append(
-                        Detection(phrase, float(score), [float(v) for v in box], mask.cpu().numpy().astype(bool))
-                    )
+                dets, presence[phrase] = self._run(image, phrase, threshold, text=phrase)
+                detections += dets
             return detections, presence
+
+    def segment_examples(self, image: Image.Image, boxes: list[list[float]], labels: list[int], phrase: str,
+                         threshold: float = 0.5):
+        with self._lock:
+            return self._run(image, phrase, threshold, input_boxes=[boxes], input_boxes_labels=[labels],
+                             original_sizes=[[image.height, image.width]])

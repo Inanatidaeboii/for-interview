@@ -1,4 +1,5 @@
-"""Output formats: pure conversions from selected instances to YOLO / JSON. Callers persist the results."""
+"""Output formats: conversions from selected instances to YOLO / COCO / JSON, and write_outputs,
+which saves them all through the Store port."""
 
 import json
 
@@ -6,16 +7,16 @@ import cv2
 import numpy as np
 from pycocotools import mask as mask_utils
 
+from segagent.core import render
 from segagent.core.domain import Instance, Workspace
+from segagent.core.ports import Store
 
 
-def mask_to_polygon(mask: np.ndarray, eps_frac: float = 0.002, min_piece_frac: float = 0.01) -> np.ndarray | None:
-    """One polygon (N x 2 pixel coords) per mask. Pieces of a split mask are joined by zero-width
-    bridges, because YOLO-seg allows one polygon per object (same idea as Ultralytics' COCO converter).
-    Holes are dropped: YOLO polygons can't represent them."""
+def mask_to_polygons(mask: np.ndarray, eps_frac: float = 0.002, min_piece_frac: float = 0.01) -> list[np.ndarray]:
+    """One simplified polygon (N x 2 pixel coords) per piece of the mask, biggest first. Holes are dropped."""
     contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
-        return None
+        return []
     areas = [cv2.contourArea(c) for c in contours]
     keep = [c for c, a in zip(contours, areas) if a >= max(areas) * min_piece_frac]
     pieces = []
@@ -23,6 +24,13 @@ def mask_to_polygon(mask: np.ndarray, eps_frac: float = 0.002, min_piece_frac: f
         p = cv2.approxPolyDP(c, eps_frac * cv2.arcLength(c, True), True).reshape(-1, 2)
         if len(p) >= 3:
             pieces.append(p)
+    return pieces
+
+
+def mask_to_polygon(mask: np.ndarray) -> np.ndarray | None:
+    """One polygon per mask. Pieces of a split mask are joined by zero-width bridges, because YOLO-seg
+    allows one polygon per object (same idea as Ultralytics' COCO converter)."""
+    pieces = mask_to_polygons(mask)
     if not pieces:
         return None
 
@@ -93,3 +101,43 @@ def to_json(ws: Workspace, selected: list[Instance], classes: list[str]) -> dict
         "classes": [{"id": i, "name": c} for i, c in enumerate(classes)],
         "instances": instances,
     }
+
+
+def to_coco(items: list[tuple[Workspace, list[Instance]]], classes: list[str]) -> dict:
+    """COCO instance segmentation. Category ids are class index + 1; split masks stay separate polygons."""
+    images, annotations = [], []
+    for image_id, (ws, selected) in enumerate(items, 1):
+        w, h = ws.size
+        images.append({"id": image_id, "file_name": f"{ws.image_id}.jpg", "width": w, "height": h})
+        for inst in selected:
+            polygons = [p.ravel().astype(float).tolist() for p in mask_to_polygons(inst.mask)]
+            if not polygons:
+                continue
+            x1, y1, x2, y2 = mask_box(inst.mask)
+            annotations.append({
+                "id": len(annotations) + 1, "image_id": image_id, "category_id": classes.index(inst.class_name) + 1,
+                "segmentation": polygons, "area": inst.area, "bbox": [x1, y1, x2 - x1, y2 - y1], "iscrowd": 0,
+                "score": round(inst.score, 4),
+            })
+    return {"images": images, "annotations": annotations,
+            "categories": [{"id": i + 1, "name": c} for i, c in enumerate(classes)]}
+
+
+def selected_list(selected: list[Instance]) -> list[dict]:
+    return [{"id": i.id, "class": i.class_name, "score": round(i.score, 2)} for i in selected]
+
+
+def write_outputs(ws: Workspace, selected: list[Instance], classes: list[str], store: Store) -> dict[str, str]:
+    """Writes every output for one image. Returns output kind -> file name in the store."""
+    stem = ws.image_id
+    outputs = {
+        "overlay": (f"{stem}_overlay.jpg", render.jpeg(render.presentation(ws.image, selected, classes), 92)),
+        "yolo_det": (f"yolo_det/{stem}.txt", yolo_det(ws, selected, classes)),
+        "yolo_seg": (f"yolo_seg/{stem}.txt", yolo_seg(ws, selected, classes)),
+        "data_yaml": ("data.yaml", data_yaml(classes)),
+        "json": (f"{stem}.json", json.dumps(to_json(ws, selected, classes), indent=1)),
+        "coco": ("coco.json", json.dumps(to_coco([(ws, selected)], classes))),
+    }
+    for name, data in outputs.values():
+        store.save(name, data)
+    return {kind: name for kind, (name, _) in outputs.items()}
